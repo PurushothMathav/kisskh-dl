@@ -1,0 +1,20 @@
+Anime, Drama, Movies & TV Shows (Kisskh):
+  download_dir: D:\kisskh dl\Videos
+  request_timeout: 30
+  alternate_resolution_selector: 'lowest'
+  preferred_urls:
+  blacklist_urls:
+
+DownloaderConfig:
+  download_dir: D:\kisskh dl\Videos   # Default directory. Can override by setting this in above client-specific configuration.
+  temp_download_dir: auto                     # If set to auto, creates a temp location under the target folder
+  concurrency_per_file: auto                  # Concurrency to download segments in a m3u8 file
+  request_timeout: 30
+  max_parallel_downloads: 2
+
+LoggerConfig:
+  log_level: INFO
+  log_dir: logs
+  max_log_size_in_kb: 100
+  log_backup_count: 3
+  log_retention_days: 7
