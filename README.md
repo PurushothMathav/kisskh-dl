@@ -45,7 +45,7 @@ kisskh-dl/
 ## 📋 Installation
 
 ```bash
-git clone https://github.com/yourusername/kisskh-dl.git
+git clone https://github.com/PurushothMathav/kisskh-dl.git
 cd kisskh-dl
 
 # Install Python dependencies
