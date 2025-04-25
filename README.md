@@ -13,6 +13,7 @@ kisskh-dl/
 ├── requirements.txt            # 📦 Required Python dependencies
 ├── Clients/
 │   └── KissKhClient.py         # 🔌 Client wrapper to interact with KissKh API
+|   └── BaseClient.py 
 ├── Utils/
 │   ├── commons.py              # 🛠️ Utility functions (color printing, YAML loader, retries, etc.)
 │   ├── BaseDownloader.py       # 📥 Abstract downloader (shared base class)
