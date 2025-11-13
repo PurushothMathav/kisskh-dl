@@ -151,6 +151,10 @@ def main():
         if chosen_res not in ep['downloadLink']:
             continue
 
+        # Fix: Merge the full episode details (including subtitles) from the client
+        full_ep_details = client._get_udb_dict().get(ep_no, {})
+        ep.update(full_ep_details)
+        
         link_info = ep['downloadLink'][chosen_res]
         ep['downloadLink'] = link_info['downloadLink']
         ep['duration'] = link_info['duration']
@@ -179,3 +183,4 @@ def main():
 if __name__ == '__main__':
     colprint_init(False)
     main()
+
