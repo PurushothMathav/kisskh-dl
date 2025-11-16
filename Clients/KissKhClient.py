@@ -218,15 +218,24 @@ class KissKhClient(BaseClient):
                     self.logger.debug('Subtitles found. Fetching subtitles token')
                     token = self._get_token(episode.get('episodeId'), self.subGuid)
                     self.logger.debug('Fetching subtitles for the episode...')
-                    subtitles = self._send_request(self.subtitles_url.format(id=str(episode.get('episodeId'))) + token, return_type='json')
-                    subtitles = { sub['label']: sub['src'] for sub in subtitles }
+                    subtitles_raw = self._send_request(self.subtitles_url.format(id=str(episode.get('episodeId'))) + token, return_type='json')
+                    
+                    # ✅ Store both URL and default flag
+                    subtitles = { sub['label']: {'src': sub['src'], 'default': sub.get('default', False)} for sub in subtitles_raw }
                     self._update_udb_dict(episode.get('episode'), {'subtitles': subtitles})
+                    
+                    # ✅ Store which language is default
+                    default_subtitle_lang = next((sub['label'] for sub in subtitles_raw if sub.get('default', False)), None)
+                    if default_subtitle_lang:
+                        self._update_udb_dict(episode.get('episode'), {'default_subtitle_lang': default_subtitle_lang})
                     # check if subtitles are encrypted and add decryption details to udb dict
                     # every subtitle can have it's own encryption type. So, check all subtitles for encryption and add decryption details to udb dict
                     encrypted_subs_details = {}
                     for k, v in subtitles.items():
                         self.logger.debug(f'Checking encryption type for {k} language...')
-                        encryption_type = v.split('?')[0].split('.')[-1]
+                        # ✅ Extract URL from dict format
+                        sub_url = v['src'] if isinstance(v, dict) else v
+                        encryption_type = sub_url.split('?')[0].split('.')[-1]
                         if encryption_type == 'txt':
                             encrypted_subs_details[k] = {'key': self.DECRYPT_SUBS_KEY, 'iv': self.DECRYPT_SUBS_IV, 'decrypter': self._aes_decrypt}
                         elif encryption_type == 'txt1':
