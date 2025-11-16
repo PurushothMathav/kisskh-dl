@@ -122,7 +122,7 @@ Subtitles are automatically fetched using a **Selenium-based browser instance** 
 
 ## 🤝 Credits
 
-- Inspired by `udb.py` and adapted to a full-featured standalone downloader.
+- Inspired by [udb.py](https://github.com/Prudhvi-pln/udb) and adapted to a full-featured standalone downloader.
 - Reverse-engineered logic from `parallel-fetch-subtitles.js` and `fetch-drama-data.js`.
 
 ---
