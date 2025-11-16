@@ -158,12 +158,21 @@ def main():
         ep['filesize_mb'] = link_info.get('filesize_mb')
         ep['episodeName'] = f"{title} Episode {int(ep_no):02d} - {chosen_res}P.mp4"
         ep['out_dir'] = target_dir
+        
+        # ✅ NEW CODE - Get subtitle data from client's internal dictionary
+        udb_data = client._get_udb_dict().get(ep_no, {})
+        ep['subtitles'] = udb_data.get('subtitles', {})
+        ep['encrypted_subs_details'] = udb_data.get('encrypted_subs_details', {})
+        ep['refererLink'] = udb_data.get('refererLink', args.url)
 
         print(f"\nDownloading {ep['episodeName']}...")
         start = time()
 
         if link_info['downloadType'] == 'hls':
-            downloader = HLSDownloader(dl_config, ep)
+            # ✅ FIXED - Create a copy of dl_config with episode-specific output directory
+            episode_dl_config = dl_config.copy()
+            episode_dl_config['download_dir'] = target_dir  # Use the show folder instead of base folder
+            downloader = HLSDownloader(episode_dl_config, ep)
             downloader.start_download(ep['downloadLink'])
         elif link_info['downloadType'] == 'mp4':
             download_file(ep['downloadLink'], os.path.join(target_dir, ep['episodeName']), referer=args.url)
