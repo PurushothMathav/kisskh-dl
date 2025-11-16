@@ -52,16 +52,39 @@ def download_single_episode(ep_data):
     """Download a single episode (to be called in parallel)"""
     ep_no, ep, chosen_res, target_dir, dl_config, client, series_title, args, position = ep_data
     
-    if chosen_res not in ep['downloadLink']:
-        return (ep_no, False, f"No {chosen_res}P available")
+    # ✅ Adaptive resolution selection - use chosen resolution or fall back to best available
+    available_resolutions = list(ep['downloadLink'].keys())
+    
+    if not available_resolutions:
+        return (ep_no, False, "No resolutions available")
+    
+    # Try to find the chosen resolution
+    if chosen_res in available_resolutions:
+        selected_res = chosen_res
+    else:
+        # Fall back to closest available resolution
+        available_res_int = sorted([int(r) for r in available_resolutions], reverse=True)
+        chosen_res_int = int(chosen_res)
+        
+        # Find closest resolution (prefer higher quality)
+        closest_res = min(available_res_int, key=lambda x: abs(x - chosen_res_int))
+        selected_res = str(closest_res)
+        
+        print(f"⚠️  [Episode {ep_no}] {chosen_res}P not available, using {selected_res}P instead")
     
     try:
-        link_info = ep['downloadLink'][chosen_res]
+        link_info = ep['downloadLink'][selected_res]
         ep['downloadLink'] = link_info['downloadLink']
         ep['duration'] = link_info['duration']
         ep['resolution_size'] = link_info['resolution_size']
         ep['filesize_mb'] = link_info.get('filesize_mb')
-        ep['episodeName'] = f"{sanitize_title(series_title)} Episode {int(ep_no):02d} - {chosen_res}P.mp4"
+        
+        # Handle special episode naming (for decimal episodes like 36.1, 36.2)
+        if isinstance(ep_no, float):
+            ep['episodeName'] = f"{sanitize_title(series_title)} Episode {ep_no} (Special) - {selected_res}P.mp4"
+        else:
+            ep['episodeName'] = f"{sanitize_title(series_title)} Episode {int(ep_no):02d} - {selected_res}P.mp4"
+        
         ep['out_dir'] = target_dir
         
         # Get subtitle data from client's udb_dict
@@ -69,8 +92,8 @@ def download_single_episode(ep_data):
         ep['subtitles'] = udb_data.get('subtitles', {})
         ep['encrypted_subs_details'] = udb_data.get('encrypted_subs_details', {})
         ep['refererLink'] = udb_data.get('refererLink', args.url)
+        ep['default_subtitle_lang'] = udb_data.get('default_subtitle_lang', None)
         
-        print(f"\n[Episode {ep_no}] Starting download: {ep['episodeName']}")
         start = time()
         
         # Create episode-specific download config
@@ -89,7 +112,7 @@ def download_single_episode(ep_data):
         
         end = time()
         duration = pretty_time(int(end - start))
-        return (ep_no, True, duration)
+        return (ep_no, True, f"{duration} [{selected_res}P]")
         
     except Exception as e:
         return (ep_no, False, str(e))    
@@ -148,15 +171,35 @@ def main():
     print("\nFetching available resolutions:")
     all_links = client.fetch_episode_links(episodes, ep_ranges)
 
-    print(f"DEBUG: all_links keys = {list(all_links.keys())}")
-    print(f"DEBUG: selected_eps = {selected_eps}")
-    print(f"DEBUG: Episode 1 data = {all_links.get(1)}")
+    # ✅ Check for special episodes (decimal episode numbers)
+    special_episodes = [ep_no for ep_no in all_links.keys() if isinstance(ep_no, float)]
+    include_specials = False
+    
+    if special_episodes:
+        print(f"\n{'='*70}")
+        print(f"⚠️  Found {len(special_episodes)} special episode(s):")
+        for sep in sorted(special_episodes):
+            special_info = all_links[sep]
+            duration = list(special_info.values())[0].get('duration', 'N/A') if special_info else 'N/A'
+            print(f"   - Episode {sep} (duration: {duration})")
+        print(f"{'='*70}")
+        include_specials_input = input("\nDownload special episodes? (y/n) [default=n]: ").strip().lower() or 'n'
+        include_specials = include_specials_input == 'y'
 
-    download_links = {
-        ep_no: data
-        for ep_no, data in all_links.items()
-        if int(str(ep_no)) in selected_eps
-    }
+    # ✅ Filter episodes - handle both integer and decimal episodes
+    download_links = {}
+    for ep_no, data in all_links.items():
+        if isinstance(ep_no, float):
+            # Special episode - only include if user wants them
+            base_ep = int(ep_no)
+            if include_specials and base_ep in selected_eps:
+                download_links[ep_no] = data
+        else:
+            # Regular episode
+            if int(ep_no) in selected_eps:
+                download_links[ep_no] = data
+    
+    print(f"\nFiltered {len(download_links)} episode(s) for download")
 
     valid_links = {}
     for ep_no, ep_data in download_links.items():
@@ -180,13 +223,28 @@ def main():
 
     print("\nReady to download the following episodes:")
     for ep_no, ep_data in valid_links.items():
-        if chosen_res not in ep_data['downloadLink']:
-            print(f"⚠️ Skipping Episode {ep_no}: No link for {chosen_res}P")
+        available_res = list(ep_data['downloadLink'].keys())
+        
+        if not available_res:
+            print(f"⚠️ Episode {ep_no}: No resolutions available")
             continue
-        link = ep_data['downloadLink'][chosen_res]['downloadLink']
-        print(f"Episode {ep_no} | {chosen_res}P | Link found [{link}]")
+        
+        # Determine which resolution will be used
+        if chosen_res in available_res:
+            use_res = chosen_res
+            status = "✓"
+        else:
+            # Find closest available
+            available_res_int = sorted([int(r) for r in available_res], reverse=True)
+            chosen_res_int = int(chosen_res)
+            closest = min(available_res_int, key=lambda x: abs(x - chosen_res_int))
+            use_res = str(closest)
+            status = f"⚠️ (using {use_res}P)"
+        
+        link = ep_data['downloadLink'][use_res]['downloadLink']
+        print(f"Episode {ep_no} | {status} {use_res}P | Link: {link[:80]}...")
 
-    confirm = input("\nProceed to download (y|n)? ").strip().lower()
+    confirm = input("\nProceed to download (y|n)? [default=y]: ").strip().lower() or 'y'
     if confirm != 'y':
         print("Aborted.")
         return
