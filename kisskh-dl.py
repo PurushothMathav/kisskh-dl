@@ -11,6 +11,7 @@ from urllib.parse import urlparse, parse_qs
 from Clients.KissKhClient import KissKhClient
 from Utils.commons import load_yaml, colprint, colprint_init, pretty_time
 from Utils.HLSDownloader import HLSDownloader
+from Utils.BaseDownloader import BaseDownloader
 import requests
 
 def download_file(url, output_path, referer=None):
@@ -169,13 +170,17 @@ def main():
         start = time()
 
         if link_info['downloadType'] == 'hls':
-            # ✅ FIXED - Create a copy of dl_config with episode-specific output directory
+            # Create a copy of dl_config with episode-specific output directory
             episode_dl_config = dl_config.copy()
-            episode_dl_config['download_dir'] = target_dir  # Use the show folder instead of base folder
+            episode_dl_config['download_dir'] = target_dir
             downloader = HLSDownloader(episode_dl_config, ep)
             downloader.start_download(ep['downloadLink'])
         elif link_info['downloadType'] == 'mp4':
-            download_file(ep['downloadLink'], os.path.join(target_dir, ep['episodeName']), referer=args.url)
+            # ✅ FIXED - Use BaseDownloader for MP4 to support subtitles
+            episode_dl_config = dl_config.copy()
+            episode_dl_config['download_dir'] = target_dir
+            downloader = BaseDownloader(episode_dl_config, ep)
+            downloader.start_download(ep['downloadLink'])
         else:
             print(f"❌ Unknown download type for {ep['episodeName']}")
             continue
