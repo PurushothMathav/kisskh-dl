@@ -91,7 +91,7 @@ def download_single_episode(ep_data):
         udb_data = client._get_udb_dict().get(ep_no, {})
         ep['subtitles'] = udb_data.get('subtitles', {})
         ep['encrypted_subs_details'] = udb_data.get('encrypted_subs_details', {})
-        ep['refererLink'] = udb_data.get('refererLink', args.url)
+        ep['refererLink'] = udb_data.get('refererLink', args.query or client.base_url)
         ep['default_subtitle_lang'] = udb_data.get('default_subtitle_lang', None)
         
         start = time()
@@ -119,7 +119,8 @@ def download_single_episode(ep_data):
 
 def main():
     parser = argparse.ArgumentParser(description='Download series from kisskh.ovh')
-    parser.add_argument('url', help='KissKh series page URL')
+    parser.add_argument('query', nargs='?', help='KissKh series URL or search keyword')
+    parser.add_argument('-s', '--search', action='store_true', help='Search mode: use keyword instead of URL')
     args = parser.parse_args()
 
     config = load_yaml('config_kisskh.yaml')
@@ -128,26 +129,81 @@ def main():
 
     client = KissKhClient(kisskh_config)
 
-    parsed_url = urlparse(args.url)
-    query_params = parse_qs(parsed_url.query)
-    series_id = query_params.get('id', [None])[0]
+    # ✅ Determine if search mode or URL mode
+    if args.search or (args.query and not args.query.startswith('http')):
+        # Search mode
+        search_keyword = args.query if args.query else input("Enter search keyword: ").strip()
+        
+        if not search_keyword:
+            raise ValueError("❌ Search keyword cannot be empty")
+        
+        print(f"\n🔍 Searching for: {search_keyword}")
+        print("="*70)
+        
+        # Search using the client's search method
+        search_results = client.search(search_keyword, search_limit=10)
+        
+        if not search_results:
+            print("❌ No results found. Try a different keyword.")
+            return
+        
+        # Let user select from search results
+        print("\n" + "="*70)
+        selection = input(f"\nSelect drama number (1-{len(search_results)}) or 'q' to quit: ").strip()
+        
+        if selection.lower() == 'q':
+            print("Aborted.")
+            return
+        
+        try:
+            selected_idx = int(selection)
+            if selected_idx < 1 or selected_idx > len(search_results):
+                raise ValueError("Invalid selection")
+        except ValueError:
+            print("❌ Invalid selection. Please enter a number from the list.")
+            return
+        
+        # Get the selected drama details
+        target_series = search_results[selected_idx]
+        series_id = target_series['series_id']
+        
+        print(f"\n✅ Selected: {target_series['title']} ({target_series.get('year', 'N/A')})")
+        
+    else:
+        # URL mode (original behavior)
+        if not args.query:
+            raise ValueError("❌ Please provide either a drama URL or use -s flag with search keyword")
+        
+        parsed_url = urlparse(args.query)
+        query_params = parse_qs(parsed_url.query)
+        series_id = query_params.get('id', [None])[0]
 
-    if not series_id:
-        raise ValueError("❌ Series ID not found in the URL. Please provide a link with '?id=####' at the end.")
+        if not series_id:
+            raise ValueError("❌ Series ID not found in the URL. Please provide a link with '?id=####' at the end.")
+        
+        # Fetch drama details from URL
+        target_series = None
 
-    search_result = client._send_request(client.series_url + str(series_id), return_type='json')
-    if not search_result:
-        raise Exception("❌ Could not fetch series details from the URL.")
+    # Fetch full series details if not already fetched from search
+    if not target_series:
+        search_result = client._send_request(client.series_url + str(series_id), return_type='json')
+        if not search_result:
+            raise Exception("❌ Could not fetch series details.")
 
-    target_series = {
-        'id': series_id,
-        'title': search_result['title'],
-        'year': search_result['releaseDate'].split('-')[0],
-        'country': search_result.get('country', 'Unknown'),
-        'series_type': search_result.get('type', 'Unknown'),
-        'status': search_result.get('status', 'Unknown'),
-        'episodes': search_result.get('episodes', [])
-    }
+        target_series = {
+            'id': series_id,
+            'title': search_result['title'],
+            'year': search_result['releaseDate'].split('-')[0],
+            'country': search_result.get('country', 'Unknown'),
+            'series_type': search_result.get('type', 'Unknown'),
+            'status': search_result.get('status', 'Unknown'),
+            'episodes': search_result.get('episodes', [])
+        }
+    else:
+        # If from search, we already have basic info, but need full episode list
+        search_result = client._send_request(client.series_url + str(series_id), return_type='json')
+        target_series['episodes'] = search_result.get('episodes', [])
+        target_series['year'] = search_result['releaseDate'].split('-')[0]
 
     print("\nFetching episode list...")
     episodes = client.fetch_episodes_list(target_series)
