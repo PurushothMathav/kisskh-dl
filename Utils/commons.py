@@ -226,13 +226,17 @@ def colprint(theme, text, **kwargs):
         print(f'{c_strt}{text}{c_end}', end=line_end)
 
 # custom decorator for retring of a function
-def retry(exceptions=(Exception,), tries=3, delay=2, backoff=2, print_errors=False):
+def retry(exceptions=(Exception,), tries=5, delay=3, backoff=2, print_errors=True):
     """
     Retry Decorator
     Retries the wrapped function/method `times` times if the exceptions listed
     in ``exceptions`` are thrown
     :param Exceptions: Lists of exceptions that trigger a retry attempt
     :type Exceptions: Tuple of Exceptions
+    :param tries: Number of retry attempts (default: 5)
+    :param delay: Initial delay in seconds (default: 3)
+    :param backoff: Multiplier for delay (default: 2)
+    :param print_errors: Whether to print retry messages (default: True)
     """
     def decorator(func):
         @wraps(func)
@@ -245,12 +249,31 @@ def retry(exceptions=(Exception,), tries=3, delay=2, backoff=2, print_errors=Fal
                         raise Exception(return_status)
                     return return_status
                 except exceptions as e:
-                    # colprint('error', f'{e} | Attempt: {attempt} / {tries}')
-                    sleep(mdelay)
                     attempt += 1
+                    if attempt >= tries:
+                        # Final attempt failed
+                        if print_errors:
+                            colprint('error', f'❌ Request failed after {tries} attempts: {e}')
+                        raise  # Re-raise the exception after all retries exhausted
+                    
+                    # Show retry message
+                    error_msg = str(e)
+                    if 'ConnectionResetError' in error_msg or '10054' in error_msg:
+                        retry_msg = f'⚠️  Connection reset by server. Retrying in {mdelay}s... (Attempt {attempt}/{tries})'
+                    elif 'SSLError' in error_msg:
+                        retry_msg = f'⚠️  SSL error. Retrying in {mdelay}s... (Attempt {attempt}/{tries})'
+                    elif 'Timeout' in error_msg:
+                        retry_msg = f'⚠️  Request timeout. Retrying in {mdelay}s... (Attempt {attempt}/{tries})'
+                    else:
+                        retry_msg = f'⚠️  Request failed: {error_msg[:50]}... Retrying in {mdelay}s... (Attempt {attempt}/{tries})'
+                    
+                    if print_errors:
+                        colprint('yellow', retry_msg)
+                    
+                    sleep(mdelay)
                     mdelay *= backoff
-                    if attempt >= tries and print_errors:
-                        colprint('error', f'{e} | Final Attempt: {attempt} / {tries}')
+            
+            # This line should never be reached, but just in case
             return func(*args, **kwargs)
         return wrapper
     return decorator
