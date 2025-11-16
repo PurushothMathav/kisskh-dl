@@ -33,6 +33,8 @@ class BaseDownloader():
         self.subtitles = ep_details.get('subtitles', {})
         # special case for encrypted subtitles in kisskh client
         self.encrypted_subs_details = ep_details.get('encrypted_subs_details', {})
+        # ✅ Get the default subtitle language
+        self.default_subtitle_lang = ep_details.get('default_subtitle_lang', None)
         self.thread_name_prefix = 'udb-mp4-'
 
         # create a requests session and use across to re-use cookies
@@ -232,7 +234,9 @@ class BaseDownloader():
 
     def _download_subtitles(self):
         for sub_name in list(self.subtitles):
-            sub_link = self.subtitles[sub_name]
+            sub_data = self.subtitles[sub_name]
+            # ✅ Handle both old format (string) and new format (dict)
+            sub_link = sub_data['src'] if isinstance(sub_data, dict) else sub_data
             sub_file = os.path.join(self.temp_dir, sub_name.replace(' ', '_') + '_' + os.path.basename(sub_link.split('?')[0]))
             # update the dictionary pointing to downloaded file
             self.subtitles[sub_name] = sub_file
@@ -291,14 +295,62 @@ class BaseDownloader():
         metadata = []
 
         # Prepare the command if subtitles are present
-        for i, (lang, url) in enumerate(self.subtitles.items(), start=1):
+        default_sub_index = None
+        for i, (lang, sub_data) in enumerate(self.subtitles.items(), start=1):
+            # Handle both old format (string) and new format (dict)
+            url = sub_data['src'] if isinstance(sub_data, dict) else sub_data
+            is_default = sub_data.get('default', False) if isinstance(sub_data, dict) else False
+            
             command.append(f'-i "{url}"')
             maps.append(f'-map {i}')
             metadata.append(f'-metadata:s:s:{i-1} title="{lang}"')
+            
+            # ✅ Set proper ISO 639-2 language codes for better player compatibility
+            lang_code_map = {
+                'english': 'eng',
+                'indonesia': 'ind', 
+                'malay': 'msa',
+                'khmer': 'khm',
+                'arabic': 'ara',
+                'hindi': 'hin',
+                'spanish': 'spa',
+                'french': 'fra',
+                'german': 'deu',
+                'japanese': 'jpn',
+                'korean': 'kor',
+                'chinese': 'chi'
+            }
+            lang_lower = lang.lower()
+            lang_code = next((code for key, code in lang_code_map.items() if key in lang_lower), lang_lower[:3])
+            metadata.append(f'-metadata:s:s:{i-1} language="{lang_code}"')
+            
+            # ✅ Find default subtitle - prioritize API default flag, then match with default_subtitle_lang
+            if default_sub_index is None:
+                if is_default:
+                    default_sub_index = i - 1
+                    self.logger.debug(f'Found default subtitle from API: {lang}')
+                elif self.default_subtitle_lang and lang.lower() == self.default_subtitle_lang.lower():
+                    default_sub_index = i - 1
+                    self.logger.debug(f'Found default subtitle from config: {lang}')
+                elif 'english' in lang.lower():
+                    default_sub_index = i - 1
+                    self.logger.debug(f'Found English subtitle as fallback default: {lang}')
 
+        # Set disposition flags - mark default subtitle
+        disposition_flags = []
+        if default_sub_index is not None:
+            for i in range(len(self.subtitles)):
+                if i == default_sub_index:
+                    # ✅ Set both 'default' and 'forced' flags for maximum compatibility
+                    disposition_flags.append(f'-disposition:s:{i} default+forced')
+                    self.logger.info(f'Setting subtitle track {i} as default+forced')
+                else:
+                    disposition_flags.append(f'-disposition:s:{i} 0')
+        
         metadata.append(f'-c:v copy -c:a copy -c:s mov_text -bsf:a aac_adtstoasc "{temp_out_file}"')
 
-        cmd = ' '.join(command + maps + metadata)
+        cmd = ' '.join(command + maps + disposition_flags + metadata)
+        self.logger.debug(f'FFmpeg subtitle command: {cmd}')
         self._exec_cmd(cmd)
 
         # Replace original file with the new file
