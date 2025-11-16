@@ -181,11 +181,13 @@ class BaseDownloader():
         self.logger.debug(f'[{ep_no}] Downloading {len(urls)} {type} using {self.concurrency} workers...')
 
         theme = PRINT_THEMES['results'] if DISPLAY_COLORS else ''
+        tqdm_position = metadata.pop('tqdm_position', None)  # ✅ Get position if provided
         metadata.update({
             'desc': f'Downloading {ep_no}',
             'file': sys.stdout,
             'ascii': '░▒█',
             'leave': True,
+            'position': tqdm_position,  # ✅ ADD THIS LINE
             'bar_format': theme + '{l_bar}{bar}' + theme + '{r_bar}'
         })
 
