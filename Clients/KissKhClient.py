@@ -1,6 +1,8 @@
 __author__ = 'Prudhvi PLN'
 
 import re
+import os
+import logging
 from quickjs import Context as quickjsContext
 from urllib.parse import quote_plus
 
@@ -260,3 +262,109 @@ class KissKhClient(BaseClient):
         target_dir = drama_title if drama_title.endswith(')') else f"{drama_title} ({target_series['year']})"
 
         return target_dir, None
+
+    def download_and_save_subtitles(self, episode, out_dir, prefer_langs=None, referer=None):
+        """
+        Download available subtitles for the given `episode` dict and save them under out_dir.
+        - episode: episode dict returned by the client (should contain 'subtitles' and optionally 'encrypted_subs_details')
+        - out_dir: directory where to save subtitle files (must exist or will be created)
+        - prefer_langs: optional list of language codes/names to prefer (e.g. ['English','en','eng'])
+        - referer: optional referer header to pass when fetching (use same referer as the video)
+        Returns: dict mapping language -> saved_filepath (for successful downloads)
+        """
+        if not episode:
+            return {}
+
+        subtitles = episode.get('subtitles') or {}
+        enc_details = episode.get('encrypted_subs_details') or {}
+
+        if not subtitles:
+            self.logger.debug("No subtitles metadata for episode %s", episode.get('episode'))
+            return {}
+
+        os.makedirs(out_dir, exist_ok=True)
+        saved = {}
+
+        # helper to pick languages if prefer_langs provided
+        langs = list(subtitles.keys())
+        if prefer_langs:
+            # try keep preferred order, but still include others afterwards
+            ordered = []
+            for p in prefer_langs:
+                for l in langs:
+                    if p.lower() in l.lower() and l not in ordered:
+                        ordered.append(l)
+            for l in langs:
+                if l not in ordered:
+                    ordered.append(l)
+            langs = ordered
+
+        for lang in langs:
+            sub_url = subtitles.get(lang)
+            if not sub_url:
+                continue
+            try:
+                # fetch raw bytes
+                raw = self._send_request(sub_url, referer=referer, return_type='bytes', silent=True)
+                if raw is None:
+                    self.logger.warning("Subtitle fetch returned None for %s (%s)", episode.get('episode'), lang)
+                    continue
+
+                # Determine whether this language is encrypted (client previously stored decryption details)
+                dec_info = enc_details.get(lang)
+                content_text = None
+
+                if dec_info:
+                    # expect dec_info has keys 'key', 'iv', 'decrypter' (the client sets these earlier)
+                    # raw might be binary or base64 text depending on server; our decryptor expects a base64 string
+                    try:
+                        # convert bytes -> str first
+                        raw_text = raw.decode('utf-8', errors='ignore').strip()
+                        # call the decrypter. Most clients use self._aes_decrypt(base64str, key, iv)
+                        key = dec_info.get('key')
+                        iv = dec_info.get('iv')
+                        decrypter = dec_info.get('decrypter', getattr(self, "_aes_decrypt", None))
+                        if not decrypter:
+                            raise RuntimeError("No decrypter available for encrypted subtitles")
+                        # some code stores the decrypter as a function or as a string; handle both:
+                        if callable(decrypter):
+                            content_text = decrypter(raw_text, key, iv)
+                        else:
+                            # fallback to client's default method
+                            content_text = self._aes_decrypt(raw_text, key, iv)
+                    except Exception as e:
+                        self.logger.warning("Failed to decrypt subtitle for %s %s: %s", episode.get('episode'), lang, e)
+                        continue
+                else:
+                    # not encrypted - treat as text (vtt/srt)
+                    try:
+                        content_text = raw.decode('utf-8')
+                    except Exception:
+                        # binary fallback
+                        content_text = raw.decode('utf-8', errors='ignore')
+
+                if not content_text:
+                    self.logger.warning("No subtitle content for %s %s", episode.get('episode'), lang)
+                    continue
+
+                # Decide extension: prefer original URL ext (vtt/srt/txt), otherwise default to .vtt
+                ext = os.path.splitext(sub_url.split('?')[0])[1].lower().strip('.')
+                if ext not in ('vtt', 'srt', 'txt'):
+                    ext = 'vtt'  # default fallback
+
+                # if encrypted txt variants may actually contain webvtt or srt text after decryption
+                filename_base = self._windows_safe_string(episode.get('episodeName') or f"ep{episode.get('episode')}")
+                # Normalize language tag for file name
+                lang_tag = lang.replace(' ', '_').replace('/', '_')
+                out_name = os.path.join(out_dir, f"{filename_base}.{lang_tag}.{ext}")
+
+                with open(out_name, 'w', encoding='utf-8') as fh:
+                    fh.write(content_text)
+
+                self.logger.info("Saved subtitle: %s (%s)", out_name, lang)
+                saved[lang] = out_name
+
+            except Exception as e:
+                self.logger.warning("Subtitle download failed for %s %s. Error: %s", episode.get('episode'), lang, e)
+
+        return saved
