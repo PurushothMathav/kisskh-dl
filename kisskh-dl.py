@@ -7,6 +7,7 @@ from time import time
 from datetime import datetime
 from tqdm.auto import tqdm
 from urllib.parse import urlparse, parse_qs
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from Clients.KissKhClient import KissKhClient
 from Utils.commons import load_yaml, colprint, colprint_init, pretty_time
@@ -46,6 +47,52 @@ def prompt_episode_range(max_ep):
 def prompt_resolution(available_res):
     inp = colprint('user_input', f"\nEnter download resolution {available_res} [default={available_res[-1]}]: ", input_type='recurring')
     return inp if inp in available_res else available_res[-1]
+    
+def download_single_episode(ep_data):
+    """Download a single episode (to be called in parallel)"""
+    ep_no, ep, chosen_res, target_dir, dl_config, client, series_title, args, position = ep_data
+    
+    if chosen_res not in ep['downloadLink']:
+        return (ep_no, False, f"No {chosen_res}P available")
+    
+    try:
+        link_info = ep['downloadLink'][chosen_res]
+        ep['downloadLink'] = link_info['downloadLink']
+        ep['duration'] = link_info['duration']
+        ep['resolution_size'] = link_info['resolution_size']
+        ep['filesize_mb'] = link_info.get('filesize_mb')
+        ep['episodeName'] = f"{sanitize_title(series_title)} Episode {int(ep_no):02d} - {chosen_res}P.mp4"
+        ep['out_dir'] = target_dir
+        
+        # Get subtitle data from client's udb_dict
+        udb_data = client._get_udb_dict().get(ep_no, {})
+        ep['subtitles'] = udb_data.get('subtitles', {})
+        ep['encrypted_subs_details'] = udb_data.get('encrypted_subs_details', {})
+        ep['refererLink'] = udb_data.get('refererLink', args.url)
+        
+        print(f"\n[Episode {ep_no}] Starting download: {ep['episodeName']}")
+        start = time()
+        
+        # Create episode-specific download config
+        episode_dl_config = dl_config.copy()
+        episode_dl_config['download_dir'] = target_dir
+        episode_dl_config['tqdm_position'] = position
+        
+        if link_info['downloadType'] == 'hls':
+            downloader = HLSDownloader(episode_dl_config, ep)
+            downloader.start_download(ep['downloadLink'])
+        elif link_info['downloadType'] == 'mp4':
+            downloader = BaseDownloader(episode_dl_config, ep)
+            downloader.start_download(ep['downloadLink'])
+        else:
+            return (ep_no, False, f"Unknown download type: {link_info['downloadType']}")
+        
+        end = time()
+        duration = pretty_time(int(end - start))
+        return (ep_no, True, duration)
+        
+    except Exception as e:
+        return (ep_no, False, str(e))    
 
 def main():
     parser = argparse.ArgumentParser(description='Download series from kisskh.ovh')
@@ -148,46 +195,47 @@ def main():
     target_dir = os.path.join(dl_config['download_dir'], f"{title} ({search_result['releaseDate'].split('-')[0]})")
     os.makedirs(target_dir, exist_ok=True)
 
-    for ep_no, ep in valid_links.items():
-        if chosen_res not in ep['downloadLink']:
-            continue
-
-        link_info = ep['downloadLink'][chosen_res]
-        ep['downloadLink'] = link_info['downloadLink']
-        ep['duration'] = link_info['duration']
-        ep['resolution_size'] = link_info['resolution_size']
-        ep['filesize_mb'] = link_info.get('filesize_mb')
-        ep['episodeName'] = f"{title} Episode {int(ep_no):02d} - {chosen_res}P.mp4"
-        ep['out_dir'] = target_dir
+    # Prepare episode tasks for parallel download
+    max_workers = dl_config.get('max_parallel_downloads', 2)
+    episode_tasks = [
+        (ep_no, ep, chosen_res, target_dir, dl_config, client, title, args, idx % max_workers)
+        for idx, (ep_no, ep) in enumerate(valid_links.items())
+    ]
+    
+    print(f"\n{'='*70}")
+    print(f"Starting parallel download of {len(episode_tasks)} episode(s)")
+    print(f"Max parallel downloads: {max_workers}")
+    print(f"{'='*70}\n")
+    
+    # Download episodes in parallel using ThreadPoolExecutor
+    completed = 0
+    failed = 0
+    
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix='episode-dl-') as executor:
+        # Submit all tasks
+        future_to_episode = {
+            executor.submit(download_single_episode, task): task[0] 
+            for task in episode_tasks
+        }
         
-        # ✅ NEW CODE - Get subtitle data from client's internal dictionary
-        udb_data = client._get_udb_dict().get(ep_no, {})
-        ep['subtitles'] = udb_data.get('subtitles', {})
-        ep['encrypted_subs_details'] = udb_data.get('encrypted_subs_details', {})
-        ep['refererLink'] = udb_data.get('refererLink', args.url)
-
-        print(f"\nDownloading {ep['episodeName']}...")
-        start = time()
-
-        if link_info['downloadType'] == 'hls':
-            # Create a copy of dl_config with episode-specific output directory
-            episode_dl_config = dl_config.copy()
-            episode_dl_config['download_dir'] = target_dir
-            downloader = HLSDownloader(episode_dl_config, ep)
-            downloader.start_download(ep['downloadLink'])
-        elif link_info['downloadType'] == 'mp4':
-            # ✅ FIXED - Use BaseDownloader for MP4 to support subtitles
-            episode_dl_config = dl_config.copy()
-            episode_dl_config['download_dir'] = target_dir
-            downloader = BaseDownloader(episode_dl_config, ep)
-            downloader.start_download(ep['downloadLink'])
-        else:
-            print(f"❌ Unknown download type for {ep['episodeName']}")
-            continue
-
-        end = time()
-        print(f"Download completed for {ep['episodeName']} in {pretty_time(int(end - start))}!")
-
+        # Process completed downloads as they finish
+        for future in as_completed(future_to_episode):
+            ep_no = future_to_episode[future]
+            try:
+                episode_num, success, message = future.result()
+                if success:
+                    print(f"\n✅ [Episode {episode_num}] Completed in {message}")
+                    completed += 1
+                else:
+                    print(f"\n❌ [Episode {episode_num}] Failed: {message}")
+                    failed += 1
+            except Exception as e:
+                print(f"\n❌ [Episode {ep_no}] Exception: {str(e)}")
+                failed += 1
+    
+    print(f"\n{'='*70}")
+    print(f"Download Summary: {completed} successful, {failed} failed")
+    print(f"{'='*70}")
     print("\nAll downloads complete!")
 
 if __name__ == '__main__':
