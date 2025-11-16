@@ -30,6 +30,7 @@ kisskh-dl/
 - ✅ Supports **multi-language subtitles** (auto fetched from JS-rendered token)
 - ✅ Subtitles are **soft-muxed** into the output `.mp4` using FFmpeg
 - ✅ Reliable with **progress bars**, **error handling**, and **debug logging**
+- ✅ Now Supports Special Episodes Download ( Ex. 36.1, 36.2, ...)
 
 ---
 
