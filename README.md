@@ -97,12 +97,11 @@ LoggerConfig:
 ```bash
 # Search for a drama
 python kisskh-dl.py "Demon Hunter"
-
-# Or use explicit search flag
 python kisskh-dl.py -s "Demon Hunter"
 
 # Interactive search (prompts for keyword)
 python kisskh-dl.py -s
+python kisskh-dl.py
 ```
 
 ### Method 2: Direct URL
