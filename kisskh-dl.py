@@ -118,9 +118,16 @@ def download_single_episode(ep_data):
         return (ep_no, False, str(e))    
 
 def main():
-    parser = argparse.ArgumentParser(description='Download series from kisskh.ovh')
-    parser.add_argument('query', nargs='?', help='KissKh series URL or search keyword')
-    parser.add_argument('-s', '--search', action='store_true', help='Search mode: use keyword instead of URL')
+    parser = argparse.ArgumentParser(
+        description='Download series from kisskh.ovh',
+        epilog='Examples:\n'
+               '  python kisskh-dl.py                                    # Interactive search\n'
+               '  python kisskh-dl.py "Demon Hunter"                     # Search by keyword\n'
+               '  python kisskh-dl.py "https://kisskh.ovh/Drama/...?id=123"  # Direct URL\n',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('query', nargs='?', default=None, help='KissKh series URL or search keyword (optional)')
+    parser.add_argument('-s', '--search', action='store_true', help='Force search mode (optional)')
     args = parser.parse_args()
 
     config = load_yaml('config_kisskh.yaml')
@@ -129,10 +136,19 @@ def main():
 
     client = KissKhClient(kisskh_config)
 
-    # ✅ Determine if search mode or URL mode
-    if args.search or (args.query and not args.query.startswith('http')):
-        # Search mode
-        search_keyword = args.query if args.query else input("Enter search keyword: ").strip()
+    # ✅ Determine mode: URL mode only if query starts with http, otherwise search mode
+    is_url_mode = args.query and args.query.startswith('http')
+    
+    if not is_url_mode:
+        # Search mode (default)
+        if args.query and not args.search:
+            # Query provided but not a URL - use as search keyword
+            search_keyword = args.query
+        else:
+            # No query or explicit -s flag - prompt for keyword
+            print("\n🔍 KissKh Drama Downloader - Search Mode")
+            print("="*70)
+            search_keyword = input("Enter search keyword: ").strip()
         
         if not search_keyword:
             raise ValueError("❌ Search keyword cannot be empty")
@@ -170,9 +186,9 @@ def main():
         print(f"\n✅ Selected: {target_series['title']} ({target_series.get('year', 'N/A')})")
         
     else:
-        # URL mode (original behavior)
-        if not args.query:
-            raise ValueError("❌ Please provide either a drama URL or use -s flag with search keyword")
+        # URL mode
+        print(f"\n🔗 Using direct URL mode")
+        print("="*70)
         
         parsed_url = urlparse(args.query)
         query_params = parse_qs(parsed_url.query)
