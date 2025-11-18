@@ -50,7 +50,7 @@ def prompt_resolution(available_res):
     
 def download_single_episode(ep_data):
     """Download a single episode (to be called in parallel)"""
-    ep_no, ep, chosen_res, target_dir, dl_config, client, series_title, args, position = ep_data
+    ep_no, ep, chosen_res, target_dir, dl_config, client, series_title, args = ep_data
     
     # ✅ Adaptive resolution selection - use chosen resolution or fall back to best available
     available_resolutions = list(ep['downloadLink'].keys())
@@ -99,7 +99,6 @@ def download_single_episode(ep_data):
         # Create episode-specific download config
         episode_dl_config = dl_config.copy()
         episode_dl_config['download_dir'] = target_dir
-        episode_dl_config['tqdm_position'] = position
         
         if link_info['downloadType'] == 'hls':
             downloader = HLSDownloader(episode_dl_config, ep)
@@ -328,8 +327,8 @@ def main():
     # Prepare episode tasks for parallel download
     max_workers = dl_config.get('max_parallel_downloads', 2)
     episode_tasks = [
-        (ep_no, ep, chosen_res, target_dir, dl_config, client, title, args, idx % max_workers)
-        for idx, (ep_no, ep) in enumerate(valid_links.items())
+        (ep_no, ep, chosen_res, target_dir, dl_config, client, title, args)
+        for ep_no, ep in valid_links.items()
     ]
     
     print(f"\n{'='*70}")
