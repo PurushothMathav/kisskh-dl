@@ -8,7 +8,6 @@ from urllib.parse import quote_plus
 
 from Clients.BaseClient import BaseClient
 
-
 class KissKhClient(BaseClient):
     '''
     All-in-one Client for kisskh site
