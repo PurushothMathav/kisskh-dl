@@ -57,7 +57,15 @@ class HLSDownloader(BaseDownloader):
         Returns: (download_status, progress_bar_increment)
         '''
         try:
-            segment_file_nm = ts_url.split('/')[-1]
+            segment_file_nm = ts_url.split('/')[-1].split('?')[0]  # Remove query params
+            
+            # ✅ Fix: Normalize segment extension - replace PNG/JPG with .ts
+            # Some servers use image extensions to bypass filters, but they're actually video segments
+            if segment_file_nm.upper().endswith(('.PNG', '.JPG', '.JPEG', '.GIF')):
+                base_name = os.path.splitext(segment_file_nm)[0]
+                segment_file_nm = f"{base_name}.ts"
+                self.logger.debug(f'Normalized segment filename to: {segment_file_nm}')
+            
             segment_file = os.path.join(f"{self.temp_dir}", f"{segment_file_nm}")
 
             # check if the segment is already downloaded
@@ -77,19 +85,38 @@ class HLSDownloader(BaseDownloader):
         seg_temp_dir = self.temp_dir.replace('\\', '\\\\')
         # ffmpeg doesn't accept backward slash in key file irrespective of platform
         key_temp_dir = self.temp_dir.replace('\\', '/')
+        
         with open(self.m3u8_file, 'w', encoding='utf-8') as m3u8_f:
             m3u8_content = re.sub('URI=(.*)/', f'URI="{key_temp_dir}/', m3u8_data, count=1)
             regex_safe = '\\\\' if os.sep == '\\' else '/'
+            
             # strip off url for segments
             m3u8_content = re.sub(r'(.*)//(.*)/', '', m3u8_content)
-            # prefix the downloaded path for segments
-            m3u8_content = re.sub(r'^(?!#).+$', rf'{seg_temp_dir}{regex_safe}\g<0>', m3u8_content, flags=re.MULTILINE)
+            
+            # ✅ Fix: Normalize image extensions to .ts in segment URLs
+            def normalize_segment_line(match):
+                line = match.group(0)
+                # Get filename without query params
+                filename = line.split('?')[0]
+                
+                # Check if it has an image extension
+                if filename.upper().endswith(('.PNG', '.JPG', '.JPEG', '.GIF')):
+                    base_name = os.path.splitext(filename)[0]
+                    # Replace with .ts extension
+                    line = line.replace(filename, f"{base_name}.ts")
+                
+                # Add temp directory path
+                return f'{seg_temp_dir}{regex_safe}{line}'
+            
+            # prefix the downloaded path for segments and normalize extensions
+            m3u8_content = re.sub(r'^(?!#).+$', normalize_segment_line, m3u8_content, flags=re.MULTILINE)
             m3u8_f.write(m3u8_content)
 
     def _convert_to_mp4(self):
         # print(f'Converting {self.out_file} to mp4')
         out_file = os.path.join(f'{self.out_dir}', f'{self.out_file}')
-        command = [f'ffmpeg -loglevel warning -allowed_extensions ALL -i "{self.m3u8_file}"']
+        # ✅ Add flags to handle segments with wrong extensions
+        command = [f'ffmpeg -extension_picky 0 -loglevel warning -allowed_extensions ALL -i "{self.m3u8_file}"']
         maps = ['-map 0:v -map 0:a'] if self.subtitles else []
         metadata = []
 
