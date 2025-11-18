@@ -13,7 +13,6 @@ from time import sleep
 from logging.handlers import RotatingFileHandler
 from subprocess import Popen, PIPE
 
-
 # color themes
 PRINT_THEMES = {
     'default': '\033[1m',       # white
