@@ -93,6 +93,12 @@ LoggerConfig:
 
 ## ⭐ Android Termux Keypoints
 
+### Install ffmpeg
+```bash
+pkg install ffmpeg
+ffmpeg -version                            # Verify installation
+```
+
 ### Download Location Set using Nano
 ```bash
 # Use Nano Editor
