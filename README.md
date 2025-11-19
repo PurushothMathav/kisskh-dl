@@ -76,7 +76,7 @@ Anime, Drama, Movies & TV Shows (Kisskh):
   alternate_resolution_selector: 'closest'  # 'closest', 'highest', or 'lowest'
 
 DownloaderConfig:
-  download_dir: D:\kisskh dl\Videos
+  download_dir: D:\kisskh dl\Videos         # For Mobile "/sdcard/Download/"
   temp_download_dir: auto
   concurrency_per_file: 8                   # Threads per file (segments/chunks)
   request_timeout: 30
@@ -89,6 +89,40 @@ LoggerConfig:
   max_log_size_in_kb: 100
   log_backup_count: 3
   log_retention_days: 7
+```
+
+## ⭐ Android Termux Keypoints
+
+### Download Location Set using Nano
+```bash
+# Use Nano Editor
+pkg install nano
+nano config_kisskh.yaml
+
+# Change download_dir location
+download_dir: "/sdcard/Download/"
+
+# Save and exit
+Press Ctrl + X
+Press Y to confirm saving the changes
+Press Enter to confirm the filename
+```
+
+### Download Location Set using Vim
+```bash
+# Use Vim Editor
+pkg install vim
+vim config_kisskh.yaml
+
+# Edit file
+vim starts in "normal" mode. To start editing, press the i key to enter "insert" mode.
+
+# Change download_dir location
+download_dir: "/sdcard/Download/"
+
+# Save and exit
+Press the Esc key to exit "insert" mode and return to "normal" mode.
+Type :wq (write and quit) and press Enter
 ```
 
 ## 📖 Usage
